@@ -20,6 +20,25 @@ func (e expectedToken) String() string {
 	return fmt.Sprintf("%s %q", e.kind, e.literal)
 }
 
+func (e *expectedToken) GetDiffString(t token.Token, prefix string) string {
+	lines := make([]string, 0)
+
+	if e.kind != t.Kind {
+		lines = append(lines, fmt.Sprintf("expected %s, got %s", e.kind, t.Kind))
+	}
+	if e.literal != t.Literal {
+		lines = append(lines, fmt.Sprintf("expected %q, got %q", e.literal, t.Literal))
+	}
+	if e.line != t.Line || e.column != t.Column {
+		lines = append(lines, fmt.Sprintf("expected ln %d, col %d, got ln %d, col %d", e.line, e.column, t.Line, t.Column))
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n"+prefix)
+}
+
 func TestLexer_NextToken(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -109,11 +128,12 @@ func TestLexer_NextToken(t *testing.T) {
 
 			for i := range expected {
 				tok := lexer.NextToken()
-				if tok.Kind != expected[i].kind || tok.Literal != expected[i].literal || tok.Line != expected[i].line || tok.Column != expected[i].column {
+				diff := expected[i].GetDiffString(tok, "    ")
+				if diff != "" {
 					messages = append(messages, struct {
 						i   int
 						msg string
-					}{i, fmt.Sprintf("expected %s (Ln %d, Col %d), got %s (Ln %d, Col %d)", expected[i].String(), expected[i].line, expected[i].column, tok.String(), tok.Line, tok.Column)})
+					}{i, diff})
 					failed++
 				}
 
