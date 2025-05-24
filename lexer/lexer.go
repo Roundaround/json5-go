@@ -11,23 +11,28 @@ import (
 
 func New(source string) *Lexer {
 	l := &Lexer{
-		source:     source,
-		readColumn: -1,
+		source: source,
+		col:    -1,
 	}
 	l.readChar()
 	return l
 }
 
 type Lexer struct {
-	source     string
-	pos        int
-	line       int
-	column     int
-	readPos    int
-	readLine   int
-	readColumn int
-	ch         rune
-	next       rune
+	source  string
+	pos     int
+	readPos int
+	line    int
+	col     int
+	ch      rune
+	next    rune
+	tokPos  tokenPos
+}
+
+type tokenPos struct {
+	offset int
+	line   int
+	column int
 }
 
 func (l *Lexer) NextToken() token.Token {
@@ -36,8 +41,11 @@ func (l *Lexer) NextToken() token.Token {
 
 	l.skipWhitespace()
 
-	l.line = l.readLine
-	l.column = l.readColumn
+	l.tokPos = tokenPos{
+		offset: l.pos,
+		line:   l.line,
+		column: l.col,
+	}
 
 	switch l.ch {
 	case '{':
@@ -87,9 +95,9 @@ func (l *Lexer) rtoken(kind token.Kind) token.Token {
 	return token.Token{
 		Kind:    kind,
 		Literal: string(l.ch),
-		Offset:  l.pos,
-		Line:    l.line + 1,
-		Column:  l.column + 1,
+		Offset:  l.tokPos.offset,
+		Line:    l.tokPos.line + 1,
+		Column:  l.tokPos.column + 1,
 	}
 }
 
@@ -97,9 +105,9 @@ func (l *Lexer) token(kind token.Kind, literal string) token.Token {
 	return token.Token{
 		Kind:    kind,
 		Literal: literal,
-		Offset:  l.pos,
-		Line:    l.line + 1,
-		Column:  l.column + 1,
+		Offset:  l.tokPos.offset,
+		Line:    l.tokPos.line + 1,
+		Column:  l.tokPos.column + 1,
 	}
 }
 
@@ -112,7 +120,7 @@ func (l *Lexer) skipWhitespace() {
 func (l *Lexer) readChar() {
 	if l.readPos >= len(l.source) {
 		l.ch = 0
-		l.readColumn = 0
+		l.col = 0
 	} else {
 		r, size := utf8.DecodeRuneInString(l.source[l.readPos:])
 		l.ch = r
@@ -127,14 +135,14 @@ func (l *Lexer) readChar() {
 		}
 
 		if isLineTerminator(l.ch) {
-			l.readLine++
-			l.readColumn = -1
+			l.line++
+			l.col = -1
 			if l.ch == '\r' && l.next == '\n' {
 				// Treat CRLF as a single character
 				l.readPos += snext
 			}
 		} else {
-			l.readColumn += len(string(l.ch))
+			l.col += len(string(l.ch))
 		}
 	}
 }
