@@ -119,31 +119,33 @@ func (l *Lexer) skipWhitespace() {
 
 func (l *Lexer) readChar() {
 	if l.readPos >= len(l.source) {
+		l.pos = l.readPos
 		l.ch = 0
 		l.col = 0
+		return
+	}
+
+	r, size := utf8.DecodeRuneInString(l.source[l.readPos:])
+	l.ch = r
+	l.pos = l.readPos
+	l.readPos += size
+
+	snext := 0
+	if l.readPos >= len(l.source) {
+		l.next = 0
 	} else {
-		r, size := utf8.DecodeRuneInString(l.source[l.readPos:])
-		l.ch = r
-		l.pos = l.readPos
-		l.readPos += size
+		l.next, snext = utf8.DecodeRuneInString(l.source[l.readPos:])
+	}
 
-		snext := 0
-		if l.readPos >= len(l.source) {
-			l.next = 0
-		} else {
-			l.next, snext = utf8.DecodeRuneInString(l.source[l.readPos:])
+	if isLineTerminator(l.ch) {
+		l.line++
+		l.col = -1
+		if l.ch == '\r' && l.next == '\n' {
+			// Treat CRLF as a single character
+			l.readPos += snext
 		}
-
-		if isLineTerminator(l.ch) {
-			l.line++
-			l.col = -1
-			if l.ch == '\r' && l.next == '\n' {
-				// Treat CRLF as a single character
-				l.readPos += snext
-			}
-		} else {
-			l.col += len(string(l.ch))
-		}
+	} else {
+		l.col += len(string(l.ch))
 	}
 }
 
