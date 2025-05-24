@@ -10,16 +10,24 @@ import (
 )
 
 func New(source string) *Lexer {
-	l := &Lexer{source: source}
+	l := &Lexer{
+		source:     source,
+		readColumn: -1,
+	}
 	l.readChar()
 	return l
 }
 
 type Lexer struct {
-	source       string
-	position     int
-	readPosition int
-	ch           rune
+	source     string
+	pos        int
+	line       int
+	column     int
+	readPos    int
+	readLine   int
+	readColumn int
+	ch         rune
+	next       rune
 }
 
 func (l *Lexer) NextToken() token.Token {
@@ -27,6 +35,9 @@ func (l *Lexer) NextToken() token.Token {
 	inc := true
 
 	l.skipWhitespace()
+
+	l.line = l.readLine
+	l.column = l.readColumn
 
 	switch l.ch {
 	case '{':
@@ -68,6 +79,7 @@ func (l *Lexer) NextToken() token.Token {
 	if inc {
 		l.readChar()
 	}
+
 	return tok
 }
 
@@ -75,7 +87,9 @@ func (l *Lexer) rtoken(kind token.Kind) token.Token {
 	return token.Token{
 		Kind:    kind,
 		Literal: string(l.ch),
-		Offset:  l.position,
+		Offset:  l.pos,
+		Line:    l.line + 1,
+		Column:  l.column + 1,
 	}
 }
 
@@ -83,38 +97,51 @@ func (l *Lexer) token(kind token.Kind, literal string) token.Token {
 	return token.Token{
 		Kind:    kind,
 		Literal: literal,
-		Offset:  l.position,
+		Offset:  l.pos,
+		Line:    l.line + 1,
+		Column:  l.column + 1,
 	}
 }
 
 func (l *Lexer) skipWhitespace() {
-	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
+	for isWhitespace(l.ch) {
 		l.readChar()
 	}
 }
 
 func (l *Lexer) readChar() {
-	if l.readPosition >= len(l.source) {
+	if l.readPos >= len(l.source) {
 		l.ch = 0
+		l.readColumn = 0
 	} else {
-		r, size := utf8.DecodeRuneInString(l.source[l.readPosition:])
+		r, size := utf8.DecodeRuneInString(l.source[l.readPos:])
 		l.ch = r
-		l.position = l.readPosition
-		l.readPosition += size
-	}
-}
+		l.pos = l.readPos
+		l.readPos += size
 
-func (l *Lexer) peekChar() rune {
-	if l.readPosition >= len(l.source) {
-		return 0
+		snext := 0
+		if l.readPos >= len(l.source) {
+			l.next = 0
+		} else {
+			l.next, snext = utf8.DecodeRuneInString(l.source[l.readPos:])
+		}
+
+		if isLineTerminator(l.ch) {
+			l.readLine++
+			l.readColumn = -1
+			if l.ch == '\r' && l.next == '\n' {
+				// Treat CRLF as a single character
+				l.readPos += snext
+			}
+		} else {
+			l.readColumn += len(string(l.ch))
+		}
 	}
-	r, _ := utf8.DecodeRuneInString(l.source[l.readPosition:])
-	return r
 }
 
 func (l *Lexer) readString() (string, error) {
 	q := l.ch
-	pos := l.position
+	pos := l.pos
 	l.readChar()
 
 	for l.ch != q {
@@ -125,14 +152,7 @@ func (l *Lexer) readString() (string, error) {
 		}
 
 		if l.ch == '\\' {
-			peek := l.peekChar()
-			if peek == '\r' {
-				l.readChar()
-				if l.peekChar() == '\n' {
-					l.readChar()
-				}
-			}
-			if peek == '\n' || peek == '\u2028' || peek == '\u2029' {
+			if isLineTerminator(l.next) {
 				l.readChar()
 			}
 			continue
@@ -144,11 +164,11 @@ func (l *Lexer) readString() (string, error) {
 	}
 
 	l.readChar()
-	return unescapeString(l.source[pos:l.position])
+	return unescapeString(l.source[pos:l.pos])
 }
 
 func (l *Lexer) readCommentToken() token.Token {
-	switch l.peekChar() {
+	switch l.next {
 	case '/':
 		return l.token(token.LINE_COMMENT, l.readLineComment())
 	case '*':
@@ -159,21 +179,21 @@ func (l *Lexer) readCommentToken() token.Token {
 }
 
 func (l *Lexer) readLineComment() string {
-	pos := l.position
+	pos := l.pos
 	for !isLineTerminator(l.ch) {
 		l.readChar()
 	}
-	return l.source[pos:l.position]
+	return l.source[pos:l.pos]
 }
 
 func (l *Lexer) readBlockComment() string {
-	pos := l.position
-	for !(l.ch == '*' && l.peekChar() == '/') {
+	pos := l.pos
+	for !(l.ch == '*' && l.next == '/') {
 		l.readChar()
 	}
 	l.readChar()
 	l.readChar()
-	return l.source[pos:l.position]
+	return l.source[pos:l.pos]
 }
 
 func (l *Lexer) readNumberToken() token.Token {
@@ -183,7 +203,7 @@ func (l *Lexer) readNumberToken() token.Token {
 		l.readChar()
 	}
 
-	if l.ch == '0' && l.peekChar() == 'x' {
+	if l.ch == '0' && l.next == 'x' {
 		return l.token(token.HEX_NUMBER, l.readHexNumber(sign))
 	}
 
@@ -191,17 +211,17 @@ func (l *Lexer) readNumberToken() token.Token {
 }
 
 func (l *Lexer) readHexNumber(sign string) string {
-	pos := l.position
+	pos := l.pos
 	l.readChar()
 	l.readChar()
 	for isHexDigit(l.ch) {
 		l.readChar()
 	}
-	return sign + l.source[pos:l.position]
+	return sign + l.source[pos:l.pos]
 }
 
 func (l *Lexer) readDecimalNumber(sign string) string {
-	pos := l.position
+	pos := l.pos
 
 	// integer part ([0-9]*)
 	for isDigit(l.ch) {
@@ -227,7 +247,7 @@ func (l *Lexer) readDecimalNumber(sign string) string {
 		}
 	}
 
-	return sign + l.source[pos:l.position]
+	return sign + l.source[pos:l.pos]
 }
 
 func (l *Lexer) readIdentifierToken() token.Token {
@@ -240,29 +260,19 @@ func (l *Lexer) readIdentifierToken() token.Token {
 }
 
 func (l *Lexer) readIdentifier() string {
-	pos := l.position
+	pos := l.pos
 	for isIdentifierPart(l.ch) {
 		l.readChar()
 	}
-	return l.source[pos:l.position]
+	return l.source[pos:l.pos]
+}
+
+func isWhitespace(ch rune) bool {
+	return ch == ' ' || ch == '\t' || isLineTerminator(ch)
 }
 
 func isLineTerminator(ch rune) bool {
 	return ch == '\r' || ch == '\n' || ch == '\u2028' || ch == '\u2029'
-}
-
-func countLineTerminatorRunes(ch rune, peek rune) int {
-	switch ch {
-	case '\r':
-		if peek == '\n' {
-			return 2
-		}
-		return 1
-	case '\n', '\u2028', '\u2029':
-		return 1
-	default:
-		return 0
-	}
 }
 
 func isNumberStart(ch rune) bool {

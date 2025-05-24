@@ -79,6 +79,8 @@ type Token struct {
 	Kind    Kind
 	Literal string
 	Offset  int
+	Line    int
+	Column  int
 }
 
 func (t Token) String() string {
