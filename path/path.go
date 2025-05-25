@@ -108,11 +108,11 @@ func (p *Path) Equals(other *Path) bool {
 }
 
 func Key(key string) *Segment {
-	return &Segment{key: key, index: -1}
+	return &Segment{key: key}
 }
 
 func Index[N number](index N) *Segment {
-	return &Segment{index: int(index), key: ""}
+	return &Segment{index: int(index)}
 }
 
 func NewSegment(segment any) (*Segment, error) {
@@ -161,8 +161,8 @@ func NewSegment(segment any) (*Segment, error) {
 }
 
 func (s *Segment) String() string {
-	if s.index != -1 {
-		return fmt.Sprintf("[%d]", s.index)
+	if s.key != "" {
+		return s.key
 	}
-	return s.key
+	return fmt.Sprintf("[%d]", s.index)
 }

@@ -1,8 +1,8 @@
 package path
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -10,14 +10,14 @@ func TestParse(t *testing.T) {
 	type testCase struct {
 		source string
 		want   *Path
-		err    string
+		err    *PathError
 	}
 
-	errorCase := func(source string, lines ...string) testCase {
+	errorCase := func(source string, errmsg string, pos int) testCase {
 		return testCase{
 			source: source,
 			want:   nil,
-			err:    strings.Join(lines, "\n"),
+			err:    &PathError{errors.New(errmsg), pos, source},
 		}
 	}
 
@@ -25,7 +25,7 @@ func TestParse(t *testing.T) {
 		return testCase{
 			source: source,
 			want:   &Path{segments: segments},
-			err:    "",
+			err:    nil,
 		}
 	}
 
@@ -33,36 +33,119 @@ func TestParse(t *testing.T) {
 		successCase(""),
 		errorCase(
 			".",
-			"invalid path: .",
-			"              ^ expected key or index, got .",
+			"expected key or index, got '.'",
+			0,
 		),
 		errorCase(
 			".foo",
-			"invalid path: .foo",
-			"              ^ expected key or index, got .",
+			"expected key or index, got '.'",
+			0,
 		),
-		successCase("$"),
+		successCase("$"), // Root gets trimmed
 		successCase(
 			"foo",
-			Segment{key: "foo", index: -1},
+			Segment{key: "foo"},
+		),
+		successCase(
+			"[0]",
+			Segment{index: 0},
+		),
+		successCase(
+			"['0']",
+			Segment{key: "0"},
+		),
+		successCase(
+			"[\"0\"]",
+			Segment{key: "0"},
+		),
+		errorCase(
+			"'foo'",
+			"expected key or index, got \"'\"",
+			0,
+		),
+		errorCase(
+			"\"foo\"",
+			"expected key or index, got '\"'",
+			0,
+		),
+		errorCase(
+			"foo.'bar'",
+			"expected key, got \"'\"",
+			4,
+		),
+		successCase(
+			"Foo",
+			Segment{key: "Foo"},
+		),
+		successCase(
+			"$foo",
+			Segment{key: "$foo"},
+		),
+		successCase(
+			"_foo",
+			Segment{key: "_foo"},
+		),
+		successCase(
+			"f$o_o$",
+			Segment{key: "f$o_o$"},
+		),
+		successCase(
+			"foo9",
+			Segment{key: "foo9"},
+		),
+		errorCase(
+			"9foo",
+			"keys cannot start with a digit, got '9'",
+			0,
+		),
+		errorCase(
+			"98",
+			"indexes must be in square brackets, got '9'",
+			0,
+		),
+		errorCase(
+			"98foo",
+			"indexes must be in square brackets, got '9'",
+			0,
 		),
 		successCase(
 			"foo.bar",
-			Segment{key: "foo", index: -1},
-			Segment{key: "bar", index: -1},
+			Segment{key: "foo"},
+			Segment{key: "bar"},
 		),
 		successCase(
 			"foo.bar[0]",
-			Segment{key: "foo", index: -1},
-			Segment{key: "bar", index: -1},
+			Segment{key: "foo"},
+			Segment{key: "bar"},
 			Segment{index: 0},
 		),
 		successCase(
-			"foo.bar[0].baz",
-			Segment{key: "foo", index: -1},
-			Segment{key: "bar", index: -1},
+			"foo.bar[3]",
+			Segment{key: "foo"},
+			Segment{key: "bar"},
+			Segment{index: 3},
+		),
+		successCase(
+			"foo.bar[3].baz",
+			Segment{key: "foo"},
+			Segment{key: "bar"},
+			Segment{index: 3},
+			Segment{key: "baz"},
+		),
+		successCase(
+			"foo.bar[3][9].baz",
+			Segment{key: "foo"},
+			Segment{key: "bar"},
+			Segment{index: 3},
+			Segment{index: 9},
+			Segment{key: "baz"},
+		),
+		successCase(
+			"[0][0][0][0]",
 			Segment{index: 0},
-			Segment{key: "baz", index: -1},
+			Segment{index: 0},
+			Segment{index: 0},
+			Segment{index: 0},
 		),
 	}
 
@@ -70,7 +153,7 @@ func TestParse(t *testing.T) {
 		t.Run(fmt.Sprintf("%q", tt.source), func(t *testing.T) {
 			got, err := Parse(tt.source)
 
-			if tt.err == "" {
+			if tt.err == nil {
 				if err != nil {
 					t.Fatalf("returned unexpected error %v", err)
 				}
@@ -87,8 +170,21 @@ func TestParse(t *testing.T) {
 					t.Fatalf("expected error, got nil")
 				}
 
-				if err.Error() != tt.err {
-					t.Fatalf("expected error %q, got %q", tt.err, err.Error())
+				var perr *PathError
+				if !errors.As(err, &perr) {
+					t.Fatalf("expected *PathError, got %T", err)
+				}
+
+				if perr.pos != tt.err.pos {
+					t.Fatalf("expected error at pos %d, got %d", tt.err.pos, perr.pos)
+				}
+
+				if perr.path != tt.err.path {
+					t.Fatalf("expected error to save path %q, got %q", tt.err.path, perr.path)
+				}
+
+				if perr.Error() != tt.err.Error() {
+					t.Fatalf("expected error %q, got %q", tt.err.Error(), perr.Error())
 				}
 			}
 		})

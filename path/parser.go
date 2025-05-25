@@ -21,28 +21,16 @@ type parser struct {
 	next    rune
 }
 
-type pathError struct {
-	pos  int
-	msg  string
-	path string
-}
-
-func (e *pathError) Error() string {
-	msg := "invalid path: "
-	pad := strings.Repeat(" ", len(msg)+e.pos)
-	return fmt.Sprintf("%s%s\n%s^ %s", msg, e.path, pad, e.msg)
-}
-
 func (p *parser) nextSegment() (*Segment, error) {
 	switch p.ch {
 	case 0:
 		return nil, nil
 	case '.':
 		if p.pos == 0 {
-			return nil, &pathError{p.pos, "expected key or index, got .", p.source}
+			return nil, p.errf("expected key or index, got %s", quotech(p.ch))
 		}
 		if !isIdentifierStart(p.next) {
-			return nil, &pathError{p.pos, fmt.Sprintf("expected key, got %q", p.next), p.source}
+			return nil, p.erratf(p.readPos, "expected key, got %s", quotech(p.next))
 		}
 		p.readChar() // skip '.'
 		return Key(p.readIdentifier()), nil
@@ -56,7 +44,7 @@ func (p *parser) nextSegment() (*Segment, error) {
 				return nil, err
 			}
 			if p.ch != ']' {
-				return nil, &pathError{p.pos, fmt.Sprintf("expected ], got %q", p.ch), p.source}
+				return nil, p.errf("expected ']', got %s", quotech(p.ch))
 			}
 			p.readChar() // skip ']'
 			return Index(num), nil
@@ -68,11 +56,11 @@ func (p *parser) nextSegment() (*Segment, error) {
 			p.readChar() // skip quote
 			ident := p.readIdentifier()
 			if p.ch != q {
-				return nil, &pathError{p.pos, fmt.Sprintf("expected %q, got %q", q, p.ch), p.source}
+				return nil, p.errf("expected %s, got %s", quotech(q), quotech(p.ch))
 			}
 			p.readChar() // skip quote
 			if p.ch != ']' {
-				return nil, &pathError{p.pos, fmt.Sprintf("expected ], got %q", p.ch), p.source}
+				return nil, p.errf("expected ']', got %s", quotech(p.ch))
 			}
 			p.readChar() // skip ']'
 			return Key(ident), nil
@@ -83,18 +71,31 @@ func (p *parser) nextSegment() (*Segment, error) {
 			p.readChar() // skip '['
 			ident := p.readIdentifier()
 			if p.ch != ']' {
-				return nil, &pathError{p.pos, fmt.Sprintf("expected ], got %q", p.ch), p.source}
+				return nil, p.errf("expected ']', got %s", quotech(p.ch))
 			}
 			p.readChar() // skip ']'
 			return Key(ident), nil
 		}
 
-		return nil, &pathError{p.pos, fmt.Sprintf("expected key or index, got %q", p.ch), p.source}
+		return nil, p.errf("expected key or index, got %s", quotech(p.ch))
 	default:
 		if isIdentifierStart(p.ch) {
 			return Key(p.readIdentifier()), nil
 		}
-		return nil, &pathError{p.pos, fmt.Sprintf("expected key or index, got %q", p.ch), p.source}
+
+		var msg string
+		if isDigit(p.ch) {
+			if isDigit(p.next) {
+				msg = "indexes must be in square brackets"
+			} else if isIdentifierPart(p.next) {
+				msg = "keys cannot start with a digit"
+			}
+		}
+		if msg == "" {
+			msg = "expected key or index"
+		}
+
+		return nil, p.errf("%s, got %s", msg, quotech(p.ch))
 	}
 }
 
@@ -117,6 +118,14 @@ func (p *parser) readChar() {
 	}
 }
 
+func (p *parser) errf(format string, args ...any) *PathError {
+	return p.erratf(p.pos, format, args...)
+}
+
+func (p *parser) erratf(pos int, format string, args ...any) *PathError {
+	return &PathError{fmt.Errorf(format, args...), pos, p.source}
+}
+
 func (p *parser) readIdentifier() string {
 	pos := p.pos
 	for isIdentifierPart(p.ch) {
@@ -134,9 +143,29 @@ func (p *parser) readNumber() (int, error) {
 	str := p.source[pos:p.pos]
 	num, err := strconv.Atoi(str)
 	if err != nil {
-		return 0, &pathError{pos, fmt.Sprintf("expected index, got %q", str), p.source}
+		return 0, p.erratf(pos, "expected index, got %q", str)
 	}
 	return num, nil
+}
+
+type PathError struct {
+	err  error
+	pos  int
+	path string
+}
+
+func (e *PathError) Error() string {
+	return fmt.Sprintf("invalid path: %v", e.err)
+}
+
+func (e *PathError) Unwrap() []error {
+	return []error{e.err}
+}
+
+func (e *PathError) Annotate() string {
+	msg := "invalid path: "
+	pad := strings.Repeat(" ", len(msg)+e.pos)
+	return fmt.Sprintf("%s%s\n%s^ %v", msg, e.path, pad, e.err)
 }
 
 func isIdentifierStart(ch rune) bool {
@@ -149,4 +178,11 @@ func isIdentifierPart(ch rune) bool {
 
 func isDigit(ch rune) bool {
 	return ch >= '0' && ch <= '9'
+}
+
+func quotech(ch rune) string {
+	if ch == '\'' {
+		return fmt.Sprintf("%q", string(ch))
+	}
+	return fmt.Sprintf("%q", ch)
 }
