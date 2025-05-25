@@ -3,6 +3,8 @@ package ast
 import (
 	"strconv"
 	"strings"
+
+	"github.com/Roundaround/json5-go/path"
 )
 
 type Kind int
@@ -50,11 +52,35 @@ type Node interface {
 	Offset() int
 	Line() int
 	Column() int
-	Path() string
+	Segment() path.Segment
+}
+
+type Position struct {
+	offset  int
+	line    int
+	column  int
+	segment path.Segment
+}
+
+func (p *Position) Offset() int {
+	return p.offset
+}
+
+func (p *Position) Line() int {
+	return p.line
+}
+
+func (p *Position) Column() int {
+	return p.column
+}
+
+func (p *Position) Segment() path.Segment {
+	return p.segment
 }
 
 type ObjectNode struct {
 	values map[string]Node
+	Position
 }
 
 func (n *ObjectNode) Kind() Kind {
