@@ -33,7 +33,8 @@ func (p *parser) nextSegment() (*Segment, error) {
 			return nil, p.erratf(p.readPos, "expected key, got %s", quotech(p.next))
 		}
 		p.readChar() // skip '.'
-		return Key(p.readIdentifier()), nil
+		s := Key(p.readIdentifier())
+		return &s, nil
 	case '[':
 		// TODO: Can I pull out the common code here?
 
@@ -47,7 +48,8 @@ func (p *parser) nextSegment() (*Segment, error) {
 				return nil, p.errf("expected ']', got %s", quotech(p.ch))
 			}
 			p.readChar() // skip ']'
-			return Index(num), nil
+			s := Index(num)
+			return &s, nil
 		}
 
 		if p.next == '"' || p.next == '\'' {
@@ -63,7 +65,8 @@ func (p *parser) nextSegment() (*Segment, error) {
 				return nil, p.errf("expected ']', got %s", quotech(p.ch))
 			}
 			p.readChar() // skip ']'
-			return Key(ident), nil
+			s := Key(ident)
+			return &s, nil
 		}
 
 		if isIdentifierStart(p.next) {
@@ -74,13 +77,15 @@ func (p *parser) nextSegment() (*Segment, error) {
 				return nil, p.errf("expected ']', got %s", quotech(p.ch))
 			}
 			p.readChar() // skip ']'
-			return Key(ident), nil
+			s := Key(ident)
+			return &s, nil
 		}
 
 		return nil, p.errf("expected key or index, got %s", quotech(p.ch))
 	default:
 		if isIdentifierStart(p.ch) {
-			return Key(p.readIdentifier()), nil
+			s := Key(p.readIdentifier())
+			return &s, nil
 		}
 
 		var msg string

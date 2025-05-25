@@ -36,7 +36,7 @@ func New(segments ...any) (*Path, error) {
 		if err != nil {
 			return nil, err
 		}
-		processed = append(processed, *s)
+		processed = append(processed, s)
 	}
 	if len(processed) > 0 && processed[0].key == Root {
 		// Don't actually store the root segment
@@ -77,12 +77,57 @@ func (p *Path) Segments() []Segment {
 	return p.segments
 }
 
+func (p *Path) Len() int {
+	return len(p.segments)
+}
+
+func (p *Path) IsEmpty() bool {
+	return len(p.segments) == 0
+}
+
 func (p *Path) Prepend(segments ...Segment) {
 	p.segments = append(segments, p.segments...)
 }
 
 func (p *Path) Append(segments ...Segment) {
 	p.segments = append(p.segments, segments...)
+}
+
+func (p *Path) Clone() *Path {
+	clone := &Path{segments: make([]Segment, len(p.segments))}
+	copy(clone.segments, p.segments)
+	return clone
+}
+
+func (p *Path) Key(key string) {
+	p.Append(Key(key))
+}
+
+func (p *Path) Index(index int) {
+	p.Append(Index(index))
+}
+
+func (p *Path) Parent() {
+	if len(p.segments) == 0 {
+		return
+	}
+	p.segments = p.segments[:len(p.segments)-1]
+}
+
+func (p *Path) Peek() *Segment {
+	if len(p.segments) == 0 {
+		return nil
+	}
+	return &p.segments[len(p.segments)-1]
+}
+
+func (p *Path) Pop() *Segment {
+	s := p.Peek()
+	if s == nil {
+		return s
+	}
+	p.segments = p.segments[:len(p.segments)-1]
+	return s
 }
 
 func (p *Path) String() string {
@@ -107,15 +152,15 @@ func (p *Path) Equals(other *Path) bool {
 	return slices.Equal(p.segments, other.segments)
 }
 
-func Key(key string) *Segment {
-	return &Segment{key: key}
+func Key(key string) Segment {
+	return Segment{key: key}
 }
 
-func Index[N number](index N) *Segment {
-	return &Segment{index: int(index)}
+func Index[N number](index N) Segment {
+	return Segment{index: int(index)}
 }
 
-func NewSegment(segment any) (*Segment, error) {
+func NewSegment(segment any) (Segment, error) {
 	switch v := segment.(type) {
 	case string:
 		return Key(v), nil
@@ -144,9 +189,9 @@ func NewSegment(segment any) (*Segment, error) {
 	case float64:
 		return Index(v), nil
 	case Segment:
-		return &v, nil
-	case *Segment:
 		return v, nil
+	case *Segment:
+		return *v, nil
 	}
 
 	if stringish, ok := segment.(stringish); ok {
@@ -157,7 +202,7 @@ func NewSegment(segment any) (*Segment, error) {
 		return Index(integerish.AsInteger()), nil
 	}
 
-	return nil, fmt.Errorf("invalid segment type: %T", segment)
+	return Segment{}, fmt.Errorf("invalid segment type: %T", segment)
 }
 
 func (s *Segment) String() string {
